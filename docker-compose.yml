@@ -1,0 +1,335 @@
+services:
+  # ===========================================
+  # COMMAND DATABASE (Single Instance - Write)
+  # ===========================================
+  command-db:
+    image: postgres:15-alpine
+    container_name: command-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: command_db
+    volumes:
+      - command-db-data:/var/lib/postgresql/data
+      - ./scripts/init-command-db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - reporting-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # QUERY DATABASE PRIMARY (Write by Projection)
+  # ===========================================
+  query-db-primary:
+    image: postgres:15-alpine
+    container_name: query-db-primary
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: query_db
+    volumes:
+      - query-db-primary-data:/var/lib/postgresql/data
+      - ./scripts/init-query-db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5433:5432"
+    networks:
+      - reporting-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # QUERY DATABASE REPLICA 1 (Read by Query Services)
+  # ===========================================
+  query-db-replica1:
+    image: postgres:15-alpine
+    container_name: query-db-replica1
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: query_db
+    volumes:
+      - query-db-replica1-data:/var/lib/postgresql/data
+      - ./scripts/init-query-db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5434:5432"
+    networks:
+      - reporting-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # QUERY DATABASE REPLICA 2 (Read by Query Services)
+  # ===========================================
+  query-db-replica2:
+    image: postgres:15-alpine
+    container_name: query-db-replica2
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: query_db
+    volumes:
+      - query-db-replica2-data:/var/lib/postgresql/data
+      - ./scripts/init-query-db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5435:5432"
+    networks:
+      - reporting-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # REDIS (Event Bus)
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - reporting-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # REPORTING COMMAND SERVICE - Instance 1
+  # ===========================================
+  reporting-command-1:
+    build:
+      context: .
+      dockerfile: cmd/reporting-command/Dockerfile
+    container_name: reporting-command-1
+    environment:
+      - DB_HOST=command-db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=command_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SERVER_PORT=8080
+      - INSTANCE_ID=command-1
+    expose:
+      - "8080"
+    depends_on:
+      command-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - reporting-network
+    restart: unless-stopped
+
+  # ===========================================
+  # REPORTING COMMAND SERVICE - Instance 2
+  # ===========================================
+  reporting-command-2:
+    build:
+      context: .
+      dockerfile: cmd/reporting-command/Dockerfile
+    container_name: reporting-command-2
+    environment:
+      - DB_HOST=command-db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=command_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SERVER_PORT=8080
+      - INSTANCE_ID=command-2
+    expose:
+      - "8080"
+    depends_on:
+      command-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - reporting-network
+    restart: unless-stopped
+
+  # ===========================================
+  # REPORTING COMMAND SERVICE - Instance 3
+  # ===========================================
+  reporting-command-3:
+    build:
+      context: .
+      dockerfile: cmd/reporting-command/Dockerfile
+    container_name: reporting-command-3
+    environment:
+      - DB_HOST=command-db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=command_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SERVER_PORT=8080
+      - INSTANCE_ID=command-3
+    expose:
+      - "8080"
+    depends_on:
+      command-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - reporting-network
+    restart: unless-stopped
+
+  # ===========================================
+  # REPORTING PROJECTION SERVICE - Writes to ALL Query DBs
+  # ===========================================
+  reporting-projection:
+    build:
+      context: .
+      dockerfile: cmd/reporting-projection/Dockerfile
+    container_name: reporting-projection
+    environment:
+      # Write to all query databases for replication
+      - DB_HOSTS=query-db-primary,query-db-replica1,query-db-replica2
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=query_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      query-db-primary:
+        condition: service_healthy
+      query-db-replica1:
+        condition: service_healthy
+      query-db-replica2:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - reporting-network
+    restart: unless-stopped
+
+  # ===========================================
+  # REPORTING QUERY SERVICE - Instance 1 (reads from replica1)
+  # ===========================================
+  reporting-query-1:
+    build:
+      context: .
+      dockerfile: cmd/reporting-query/Dockerfile
+    container_name: reporting-query-1
+    environment:
+      - DB_HOSTS=query-db-replica1
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=query_db
+      - SERVER_PORT=8081
+      - INSTANCE_ID=query-1
+    expose:
+      - "8081"
+    depends_on:
+      query-db-replica1:
+        condition: service_healthy
+    networks:
+      - reporting-network
+    restart: unless-stopped
+
+  # ===========================================
+  # REPORTING QUERY SERVICE - Instance 2 (reads from replica2)
+  # ===========================================
+  reporting-query-2:
+    build:
+      context: .
+      dockerfile: cmd/reporting-query/Dockerfile
+    container_name: reporting-query-2
+    environment:
+      - DB_HOSTS=query-db-replica2
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=query_db
+      - SERVER_PORT=8081
+      - INSTANCE_ID=query-2
+    expose:
+      - "8081"
+    depends_on:
+      query-db-replica2:
+        condition: service_healthy
+    networks:
+      - reporting-network
+    restart: unless-stopped
+
+  # ===========================================
+  # REPORTING QUERY SERVICE - Instance 3 (reads from primary via pgbouncer)
+  # ===========================================
+  reporting-query-3:
+    build:
+      context: .
+      dockerfile: cmd/reporting-query/Dockerfile
+    container_name: reporting-query-3
+    environment:
+      - DB_HOSTS=query-db-primary
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=query_db
+      - SERVER_PORT=8081
+      - INSTANCE_ID=query-3
+    expose:
+      - "8081"
+    depends_on:
+      query-db-primary:
+        condition: service_healthy
+    networks:
+      - reporting-network
+    restart: unless-stopped
+
+  # ===========================================
+  # NGINX LOAD BALANCER
+  # ===========================================
+  nginx-lb:
+    image: nginx:alpine
+    container_name: nginx-lb
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:80"    # Command Service (Write)
+      - "8090:8090"  # Query Service (Read)
+    depends_on:
+      - reporting-command-1
+      - reporting-command-2
+      - reporting-command-3
+      - reporting-query-1
+      - reporting-query-2
+      - reporting-query-3
+    networks:
+      - reporting-network
+    restart: unless-stopped
+
+networks:
+  reporting-network:
+    driver: bridge
+
+volumes:
+  command-db-data:
+  query-db-primary-data:
+  query-db-replica1-data:
+  query-db-replica2-data:
+  redis-data:

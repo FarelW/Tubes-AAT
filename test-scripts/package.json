@@ -1,0 +1,49 @@
+{
+    "name": "reporting-service-test-scripts",
+    "version": "1.0.0",
+    "description": "Test scripts for Reporting Service CQRS",
+    "main": "index.js",
+    "type": "module",
+    "scripts": {
+        "test": "node index.js",
+        "test:health": "node scripts/health-check.js",
+        "test:create": "node scripts/create-reports.js",
+        "test:query": "node scripts/query-reports.js",
+        "test:full": "node scripts/full-test.js",
+        "test:load": "node scripts/load-test.js",
+        "seed": "node scripts/seed-data.js",
+        "seed:small": "node scripts/seed-data.js 20",
+        "seed:medium": "node scripts/seed-data.js 50",
+        "seed:large": "node scripts/seed-data.js 100",
+        "verify:sync": "node scripts/verify-sync.js",
+        "check:sync": "node scripts/check-sync-status.js",
+        "check:db": "node scripts/check-db-sync.js",
+        "test:scalability": "node scripts/scalability-test.js",
+        "loadtest": "node scripts/comprehensive-load-test.js both",
+        "loadtest:light": "node scripts/comprehensive-load-test.js light both",
+        "loadtest:medium": "node scripts/comprehensive-load-test.js medium both",
+        "loadtest:heavy": "node scripts/comprehensive-load-test.js heavy both",
+        "loadtest:extreme": "node scripts/comprehensive-load-test.js extreme both",
+        "loadtest:stress": "node scripts/comprehensive-load-test.js stress both",
+        "loadtest:write": "node scripts/comprehensive-load-test.js light write",
+        "loadtest:read": "node scripts/comprehensive-load-test.js light read",
+        "loadtest:write:heavy": "node scripts/comprehensive-load-test.js heavy write",
+        "loadtest:read:heavy": "node scripts/comprehensive-load-test.js heavy read",
+        "parallel": "node scripts/parallel-load-test.js light both",
+        "parallel:medium": "node scripts/parallel-load-test.js medium both",
+        "parallel:heavy": "node scripts/parallel-load-test.js heavy both",
+        "parallel:extreme": "node scripts/parallel-load-test.js extreme both",
+        "parallel:stress": "node scripts/parallel-load-test.js stress both",
+        "parallel:max": "node scripts/parallel-load-test.js max both"
+    },
+    "keywords": [
+        "testing",
+        "api",
+        "cqrs"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "axios": "^1.6.2"
+    }
+}
