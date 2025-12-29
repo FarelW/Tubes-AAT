@@ -4,9 +4,6 @@
 *.dll
 *.so
 *.dylib
-reporting-command
-reporting-projection
-reporting-query
 
 # Test binary, built with `go test -c`
 *.test
