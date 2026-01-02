@@ -24,12 +24,12 @@ func startConsumer(app *App) {
 
 		log.Printf("[CONSUMER] Received %s: report=%s, status=%s", event.EventType, payload.ReportID, payload.NewStatus)
 
-		// Update my_reports_view
-		_, err := app.DB.ExecContext(ctx,
+		// [CQRS - SYNC] Update ReadDB.my_reports_view projection
+		_, err := app.ReadDB.ExecContext(ctx,
 			`UPDATE my_reports_view SET current_status = $1, last_status_at = $2 WHERE report_id = $3`,
 			payload.NewStatus, payload.ChangedAt, payload.ReportID)
 		if err != nil {
-			log.Printf("Error updating my_reports_view: %v", err)
+			log.Printf("[CQRS-SYNC] Error updating my_reports_view: %v", err)
 		}
 
 		return nil

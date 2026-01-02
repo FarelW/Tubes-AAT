@@ -1,19 +1,19 @@
 services:
   # ===========================================
-  # REPORTING DATABASE
+  # REPORTING WRITE DATABASE (CQRS Command Side)
   # ===========================================
-  reporting-db:
+  reporting-write-db:
     image: postgres:15-alpine
-    container_name: reporting-db
+    container_name: reporting-write-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: reporting_db
+      POSTGRES_DB: reporting_write_db
     volumes:
-      - reporting-db-data:/var/lib/postgresql/data
-      - ./scripts/init-reporting-db.sql:/docker-entrypoint-initdb.d/init.sql
+      - reporting-write-db-data:/var/lib/postgresql/data
+      - ./scripts/init-reporting-write-db.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5432:5432"
+      - "5436:5432"
     networks:
       - poc-network
     healthcheck:
@@ -21,6 +21,30 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # ===========================================
+  # REPORTING READ DATABASE (CQRS Query Side)
+  # ===========================================
+  reporting-read-db:
+    image: postgres:15-alpine
+    container_name: reporting-read-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: reporting_read_db
+    volumes:
+      - reporting-read-db-data:/var/lib/postgresql/data
+      - ./scripts/init-reporting-read-db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5435:5432"
+    networks:
+      - poc-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 
   # ===========================================
   # OPERATIONS DATABASE
@@ -87,7 +111,7 @@ services:
       retries: 5
 
   # ===========================================
-  # REPORTING SERVICE (Citizen-Facing)
+  # REPORTING SERVICE (Citizen-Facing) - CQRS Enabled
   # ===========================================
   reporting-service:
     build:
@@ -95,11 +119,19 @@ services:
       dockerfile: cmd/reporting-service/Dockerfile
     container_name: reporting-service
     environment:
-      - DB_HOST=reporting-db
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - DB_NAME=reporting_db
+      # Write DB (Command Side)
+      - WRITE_DB_HOST=reporting-write-db
+      - WRITE_DB_PORT=5432
+      - WRITE_DB_USER=postgres
+      - WRITE_DB_PASSWORD=postgres
+      - WRITE_DB_NAME=reporting_write_db
+      # Read DB (Query Side)
+      - READ_DB_HOST=reporting-read-db
+      - READ_DB_PORT=5432
+      - READ_DB_USER=postgres
+      - READ_DB_PASSWORD=postgres
+      - READ_DB_NAME=reporting_read_db
+      # Event Bus
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - SERVER_PORT=8080
@@ -107,13 +139,16 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      reporting-db:
+      reporting-write-db:
+        condition: service_healthy
+      reporting-read-db:
         condition: service_healthy
       redis:
         condition: service_healthy
     networks:
       - poc-network
     restart: unless-stopped
+
 
   # ===========================================
   # OPERATIONS SERVICE (Officer-Facing)
@@ -196,7 +231,8 @@ networks:
     driver: bridge
 
 volumes:
-  reporting-db-data:
+  reporting-write-db-data:
+  reporting-read-db-data:
   operations-db-data:
   workflow-db-data:
   redis-data:

@@ -19,9 +19,13 @@ import (
 func setupRoutes(app *App) {
 	app.Router.HandleFunc("/health", healthHandler(app)).Methods("GET")
 	app.Router.HandleFunc("/auth/login", loginHandler()).Methods("POST")
+
+	// COMMAND handlers (use WriteDB)
 	app.Router.HandleFunc("/reports", authMiddleware(createReportHandler(app))).Methods("POST")
-	app.Router.HandleFunc("/reports/me", authMiddleware(getMyReportsHandler(app))).Methods("GET")
 	app.Router.HandleFunc("/reports/{id}/upvote", authMiddleware(upvoteReportHandler(app))).Methods("POST")
+
+	// QUERY handlers (use ReadDB)
+	app.Router.HandleFunc("/reports/me", authMiddleware(getMyReportsHandler(app))).Methods("GET")
 	app.Router.HandleFunc("/reports/public", getPublicReportsHandler(app)).Methods("GET")
 }
 
@@ -52,6 +56,7 @@ func healthHandler(app *App) http.HandlerFunc {
 			"status":   "healthy",
 			"service":  "reporting-service",
 			"instance": app.InstanceID,
+			"cqrs":     "enabled",
 		})
 	}
 }
@@ -92,7 +97,12 @@ func loginHandler() http.HandlerFunc {
 	}
 }
 
+// =============================================================================
+// COMMAND HANDLERS (Write to WriteDB)
+// =============================================================================
+
 // createReportHandler creates a new citizen report
+// Uses: WriteDB (COMMAND)
 func createReportHandler(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims := r.Context().Value("claims").(*auth.Claims)
@@ -125,27 +135,37 @@ func createReportHandler(app *App) http.HandlerFunc {
 		reportID := uuid.New()
 		now := time.Now()
 
-		// Insert into reports table
-		_, err := app.DB.ExecContext(r.Context(),
+		// [CQRS - COMMAND] Insert into WriteDB.reports
+		_, err := app.WriteDB.ExecContext(r.Context(),
 			`INSERT INTO reports (report_id, reporter_user_id, visibility, content, category, created_at)
 			 VALUES ($1, $2, $3, $4, $5, $6)`,
 			reportID, claims.Sub, visibility, req.Content, category, now)
 		if err != nil {
-			log.Printf("Error inserting report: %v", err)
+			log.Printf("[CQRS-WRITE] Error inserting report: %v", err)
 			respondWithError(w, http.StatusInternalServerError, "Failed to create report")
 			return
 		}
+		log.Printf("[CQRS-WRITE] Report %s written to WriteDB", reportID)
 
-		// Insert into my_reports_view (initial state)
-		_, err = app.DB.ExecContext(r.Context(),
-			`INSERT INTO my_reports_view (report_id, reporter_user_id, content, visibility, current_status, created_at, last_status_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			reportID, claims.Sub, req.Content, visibility, "RECEIVED", now, now)
+		// [CQRS - SYNC] Also insert into ReadDB for immediate consistency
+		// (In a full CQRS, this would be done by consumer, but we also do it here for responsiveness)
+		_, err = app.ReadDB.ExecContext(r.Context(),
+			`INSERT INTO my_reports_view (report_id, reporter_user_id, content, category, visibility, current_status, created_at, last_status_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			reportID, claims.Sub, req.Content, category, visibility, "RECEIVED", now, now)
 		if err != nil {
-			log.Printf("Error inserting to my_reports_view: %v", err)
+			log.Printf("[CQRS-SYNC] Error syncing to ReadDB: %v", err)
 		}
 
-		// Publish event
+		// [CQRS - SYNC] Also insert into public_reports_view if public
+		if visibility == "PUBLIC" {
+			app.ReadDB.ExecContext(r.Context(),
+				`INSERT INTO public_reports_view (report_id, content, category, vote_count, created_at)
+				 VALUES ($1, $2, $3, 0, $4)`,
+				reportID, req.Content, category, now)
+		}
+
+		// Publish event for other services
 		payload := events.ReportCreatedPayload{
 			ReportID:       reportID.String(),
 			ReporterUserID: claims.Sub,
@@ -171,16 +191,85 @@ func createReportHandler(app *App) http.HandlerFunc {
 	}
 }
 
+// upvoteReportHandler handles upvoting a public report
+// Uses: WriteDB (COMMAND) + ReadDB (for check + sync)
+func upvoteReportHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims := r.Context().Value("claims").(*auth.Claims)
+		vars := mux.Vars(r)
+		reportID := vars["id"]
+
+		// [CQRS - READ] Check if report exists and is public (from WriteDB for authoritative check)
+		var visibility string
+		err := app.WriteDB.QueryRowContext(r.Context(),
+			`SELECT visibility FROM reports WHERE report_id = $1`, reportID).Scan(&visibility)
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Report not found")
+			return
+		}
+		if visibility != "PUBLIC" {
+			respondWithError(w, http.StatusBadRequest, "Can only upvote public reports")
+			return
+		}
+
+		// [CQRS - COMMAND] Insert vote into WriteDB
+		_, err = app.WriteDB.ExecContext(r.Context(),
+			`INSERT INTO votes (report_id, voter_user_id, created_at)
+			 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+			reportID, claims.Sub, time.Now())
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to upvote")
+			return
+		}
+		log.Printf("[CQRS-WRITE] Vote for %s written to WriteDB", reportID)
+
+		// [CQRS - SYNC] Update vote count in ReadDB
+		var voteCount int
+		app.WriteDB.QueryRowContext(r.Context(),
+			`SELECT COUNT(*) FROM votes WHERE report_id = $1`, reportID).Scan(&voteCount)
+
+		app.ReadDB.ExecContext(r.Context(),
+			`UPDATE my_reports_view SET vote_count = $1 WHERE report_id = $2`, voteCount, reportID)
+		app.ReadDB.ExecContext(r.Context(),
+			`UPDATE public_reports_view SET vote_count = $1 WHERE report_id = $2`, voteCount, reportID)
+
+		// Publish event
+		payload := events.ReportUpvotedPayload{
+			ReportID:    reportID,
+			VoterUserID: claims.Sub,
+			CreatedAt:   time.Now(),
+		}
+		event, _ := events.NewEvent(events.ReportUpvoted, reportID, payload)
+		if err := app.EventBus.Publish(r.Context(), event); err != nil {
+			log.Printf("Error publishing upvote event: %v", err)
+		} else {
+			log.Printf("[EVENT] Published %s for report %s", events.ReportUpvoted, reportID)
+		}
+
+		respondWithJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": "Upvoted successfully",
+		})
+	}
+}
+
+// =============================================================================
+// QUERY HANDLERS (Read from ReadDB)
+// =============================================================================
+
 // getMyReportsHandler returns citizen's own reports
+// Uses: ReadDB (QUERY)
 func getMyReportsHandler(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims := r.Context().Value("claims").(*auth.Claims)
 
-		rows, err := app.DB.QueryContext(r.Context(),
+		// [CQRS - QUERY] Read from ReadDB
+		rows, err := app.ReadDB.QueryContext(r.Context(),
 			`SELECT report_id, content, visibility, current_status, vote_count, last_status_at, created_at
 			 FROM my_reports_view WHERE reporter_user_id = $1 ORDER BY created_at DESC`,
 			claims.Sub)
 		if err != nil {
+			log.Printf("[CQRS-READ] Error querying: %v", err)
 			respondWithError(w, http.StatusInternalServerError, "Failed to fetch reports")
 			return
 		}
@@ -214,73 +303,16 @@ func getMyReportsHandler(app *App) http.HandlerFunc {
 	}
 }
 
-// upvoteReportHandler handles upvoting a public report
-func upvoteReportHandler(app *App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		claims := r.Context().Value("claims").(*auth.Claims)
-		vars := mux.Vars(r)
-		reportID := vars["id"]
-
-		// Check if report exists and is public
-		var visibility string
-		err := app.DB.QueryRowContext(r.Context(),
-			`SELECT visibility FROM reports WHERE report_id = $1`, reportID).Scan(&visibility)
-		if err == sql.ErrNoRows {
-			respondWithError(w, http.StatusNotFound, "Report not found")
-			return
-		}
-		if visibility != "PUBLIC" {
-			respondWithError(w, http.StatusBadRequest, "Can only upvote public reports")
-			return
-		}
-
-		// Insert vote
-		_, err = app.DB.ExecContext(r.Context(),
-			`INSERT INTO votes (report_id, voter_user_id, created_at)
-			 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-			reportID, claims.Sub, time.Now())
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to upvote")
-			return
-		}
-
-		// Update vote count
-		app.DB.ExecContext(r.Context(),
-			`UPDATE my_reports_view SET vote_count = (SELECT COUNT(*) FROM votes WHERE report_id = $1)
-			 WHERE report_id = $1`, reportID)
-
-		// Publish event
-		payload := events.ReportUpvotedPayload{
-			ReportID:    reportID,
-			VoterUserID: claims.Sub,
-			CreatedAt:   time.Now(),
-		}
-		event, _ := events.NewEvent(events.ReportUpvoted, reportID, payload)
-		if err := app.EventBus.Publish(r.Context(), event); err != nil {
-			log.Printf("Error publishing upvote event: %v", err)
-		} else {
-			log.Printf("[EVENT] Published %s for report %s", events.ReportUpvoted, reportID)
-		}
-
-		respondWithJSON(w, http.StatusOK, map[string]interface{}{
-			"success": true,
-			"message": "Upvoted successfully",
-		})
-	}
-}
-
 // getPublicReportsHandler returns all public reports
+// Uses: ReadDB (QUERY)
 func getPublicReportsHandler(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := app.DB.QueryContext(r.Context(),
-			`SELECT r.report_id, r.content, r.category, r.created_at,
-			        COALESCE(v.vote_count, 0) as vote_count
-			 FROM reports r
-			 LEFT JOIN (SELECT report_id, COUNT(*) as vote_count FROM votes GROUP BY report_id) v
-			 ON r.report_id = v.report_id
-			 WHERE r.visibility = 'PUBLIC'
-			 ORDER BY r.created_at DESC LIMIT 50`)
+		// [CQRS - QUERY] Read from ReadDB.public_reports_view
+		rows, err := app.ReadDB.QueryContext(r.Context(),
+			`SELECT report_id, content, category, vote_count, created_at
+			 FROM public_reports_view ORDER BY created_at DESC LIMIT 50`)
 		if err != nil {
+			log.Printf("[CQRS-READ] Error querying public reports: %v", err)
 			respondWithError(w, http.StatusInternalServerError, "Failed to fetch reports")
 			return
 		}
@@ -291,7 +323,7 @@ func getPublicReportsHandler(app *App) http.HandlerFunc {
 			var reportID, content, category string
 			var createdAt time.Time
 			var voteCount int
-			rows.Scan(&reportID, &content, &category, &createdAt, &voteCount)
+			rows.Scan(&reportID, &content, &category, &voteCount, &createdAt)
 			reports = append(reports, map[string]interface{}{
 				"report_id":  reportID,
 				"content":    content,
@@ -311,6 +343,10 @@ func getPublicReportsHandler(app *App) http.HandlerFunc {
 		})
 	}
 }
+
+// =============================================================================
+// HELPERS
+// =============================================================================
 
 // respondWithJSON writes JSON response
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
