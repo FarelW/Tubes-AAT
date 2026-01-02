@@ -21,6 +21,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   # ===========================================
   # REPORTING READ DATABASE (CQRS Query Side)
@@ -44,7 +45,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
+    restart: unless-stopped
 
   # ===========================================
   # OPERATIONS DATABASE
@@ -68,6 +69,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   # ===========================================
   # WORKFLOW DATABASE
@@ -91,6 +93,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   # ===========================================
   # REDIS (Event Bus)
@@ -109,6 +112,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   # ===========================================
   # REPORTING SERVICE (Citizen-Facing) - CQRS Enabled
