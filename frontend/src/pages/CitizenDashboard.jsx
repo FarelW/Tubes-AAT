@@ -65,23 +65,25 @@ export function CitizenDashboard({
                   value={reportCategory} onChange={e => setReportCategory(e.target.value)}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:border-blue-500 outline-none text-sm appearance-none"
                 >
-                  <option value="infrastruktur">🏗️ Infrastructure (Roads, Bridges)</option>
-                  <option value="kesehatan">🏥 Health (Sanitation, Outbreaks)</option>
-                  <option value="keamanan">👮 Safety (Patrols, Hazards)</option>
-                  <option value="kebersihan">🧹 Cleanliness (Waste, Garbage)</option>
-                  <option value="kriminalitas">🚨 Crime (Theft, Vandalism)</option>
-                  <option value="lainnya">📦 Other</option>
+                  <option value="infrastruktur">Infrastructure (Roads, Bridges)</option>
+                  <option value="kesehatan">Health (Sanitation, Outbreaks)</option>
+                  <option value="keamanan">Safety (Patrols, Hazards)</option>
+                  <option value="kebersihan">Cleanliness (Waste, Garbage)</option>
+                  <option value="kriminalitas">Crime (Theft, Vandalism)</option>
+                  <option value="lainnya">Other</option>
                 </select>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-500 ml-1">Visibility</label>
+                <label className="block text-sm font-medium text-zinc-400 mb-2">Visibility</label>
                 <select
-                  value={reportVisibility} onChange={e => setReportVisibility(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:border-blue-500 outline-none text-sm appearance-none"
+                  value={reportVisibility}
+                  onChange={(e) => setReportVisibility(e.target.value)}
+                  disabled={loading}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500 transition-colors"
                 >
-                  <option value="PUBLIC">🌐 Public (Visible to all)</option>
-                  <option value="ANONYMOUS">🕵️ Anonymous (Hide identity)</option>
+                  <option value="PUBLIC">Public (Visible to all)</option>
+                  <option value="ANONYMOUS">Anonymous (Hide identity)</option>
                 </select>
               </div>
             </div>

@@ -1,211 +1,93 @@
 # Citizen Reporting System - PoC
 
-Proof-of-Concept untuk Sistem Pelaporan Warga menggunakan **Microservices + Event-Driven Architecture** dengan Go (Golang).
+A high-performance, event-driven microservices Proof-of-Concept for a citizen reporting platform. Built with **Go**, **PostgreSQL**, **Redis Streams**, and **CQRS architecture**.
 
-## 🏗️ Arsitektur Sistem
+## 🏗️ System Architecture
 
-```
-                    ┌─────────────────────────────────────────────────────────┐
-                    │                    CITIZEN / OFFICER                     │
-                    └──────────────┬────────────────────┬─────────────────────┘
-                                   │                    │
-                    ┌──────────────▼──────┐   ┌────────▼────────────┐
-                    │  Reporting Service  │   │  Operations Service │
-                    │   (Citizen-facing)  │   │   (Officer-facing)  │
-                    │      Port 8080      │   │      Port 8081      │
-                    └──────────┬──────────┘   └──────────┬──────────┘
-                               │                         │
-                    ┌──────────▼──────────┐   ┌──────────▼──────────┐
-                    │    Reporting DB     │   │    Operations DB    │
-                    │    (PostgreSQL)     │   │    (PostgreSQL)     │
-                    └─────────────────────┘   └─────────────────────┘
-                               │                         │
-                               │    ┌────────────────┐   │
-                               └────►  Redis Streams ◄───┘
-                                    │   (Event Bus)  │
-                                    └───────┬────────┘
-                                            │
-                               ┌────────────▼────────────┐
-                               │    Workflow Service     │
-                               │   (SLA + Notifications) │
-                               │       Port 8082         │
-                               └────────────┬────────────┘
-                                            │
-                               ┌────────────▼────────────┐
-                               │      Workflow DB        │
-                               │      (PostgreSQL)       │
-                               └─────────────────────────┘
+The system uses a **CQRS (Command Query Responsibility Segregation)** pattern to separate write and read operations, ensuring high read scalability for the public feed while maintaining data integrity for report creation.
+
+```mermaid
+flowchart TD
+    Citizen[Citizen] -->|Read/Write| RS[Reporting Service :8080]
+    Officer[Officer] -->|Manage| OS[Operations Service :8081]
+
+    subgraph "Infrastructure"
+        RS -->|Write| WDB[(Write DB)]
+        RS -->|Read| RDB[(Read DB)]
+        OS -->|Manage| ODB[(Operations DB)]
+        OS -->|Publish| Redis[Redis Streams]
+        RS -->|Publish| Redis
+    end
+
+    subgraph "Workers"
+        WS[Workflow Service :8082] -->|Consume| Redis
+        WS -->|Track| WkDB[(Workflow DB)]
+    end
 ```
 
-## 📦 Komponen
+## 📦 Components
 
-| Service | Port | Database | Fungsi |
-|---------|------|----------|--------|
-| Reporting Service | 8080 | reporting_db | Citizen: buat laporan, lihat status, upvote |
-| Operations Service | 8081 | operations_db | Officer: inbox, update status |
-| Workflow Service | 8082 | workflow_db | SLA tracking, notifications |
-| Redis | 6379 | - | Event Bus (Redis Streams) |
+| Service | Port | Database | Function |
+|---------|------|----------|----------|
+| **Reporting Service** | `8080` | `reporting_write_db`<br>`reporting_read_db` | Citizen API. Handles report creation (Write DB) and fetching feeds (Read DB). |
+| **Operations Service** | `8081` | `operations_db` | Officer API. Manages case inbox and status updates. |
+| **Workflow Service** | `8082` | `workflow_db` | Background worker. Tracks SLA compliance and notifications. |
+| **Frontend** | `3000` | - | React + Vite UI for Citizens and Officers. |
+| **Redis** | `6379` | - | Event Bus (Streams) for asynchronous communication. |
 
-## 🚀 Cara Menjalankan
+## 🚀 Getting Started
 
 ### Prerequisites
 - Docker & Docker Compose
+- Node.js & npm (for load testing)
 
-### Start Services
-
+### Run the Project
 ```bash
-# Stop & hapus data lama (jika ada)
-docker-compose down -v
-
-# Build & jalankan semua services
+# 1. Start all services (Database, Backend, Frontend)
 docker-compose up --build -d
 
-# Cek status
-docker-compose ps
-
-# Lihat logs
+# 2. Check logs
 docker-compose logs -f
 ```
 
-### Stop Services
+### Access Points
+- **Frontend App**: [http://localhost:3000](http://localhost:3000)
+- **Reporting API**: [http://localhost:8080](http://localhost:8080)
+- **Operations API**: [http://localhost:8081](http://localhost:8081)
 
-```bash
-docker-compose down      # Stop saja
-docker-compose down -v   # Stop + hapus data
-```
-
-## 👤 Hardcoded Users (PoC)
-
-| Username | Password | Role | Agency |
-|----------|----------|------|--------|
-| citizen1 | password | citizen | - |
-| citizen2 | password | citizen | - |
-| citizen3 | password | citizen | - |
-| officer1 | password | officer | AGENCY_INFRA |
-| officer2 | password | officer | AGENCY_HEALTH |
-| officer3 | password | officer | AGENCY_SAFETY |
-
-## 📡 API Endpoints
+## � API Endpoints
 
 ### Reporting Service (Port 8080) - Citizen
-
-| Method | Endpoint | Auth | Deskripsi |
-|--------|----------|------|-----------|
-| GET | /health | - | Health check |
-| POST | /auth/login | - | Login, dapatkan JWT token |
-| POST | /reports | Bearer | Buat laporan baru |
-| GET | /reports/me | Bearer | Lihat laporan milik sendiri + status |
-| POST | /reports/:id/upvote | Bearer | Upvote laporan publik |
-| GET | /reports/public | - | Lihat semua laporan publik |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/health` | - | Health check |
+| `POST` | `/auth/login` | - | Login, get JWT token |
+| `POST` | `/reports` | Bearer | Create new report |
+| `GET` | `/reports/me` | Bearer | Get my reports with status |
+| `POST` | `/reports/:id/upvote` | Bearer | Upvote a public report |
+| `GET` | `/reports/public` | - | View all public reports |
 
 ### Operations Service (Port 8081) - Officer
-
-| Method | Endpoint | Auth | Deskripsi |
-|--------|----------|------|-----------|
-| GET | /health | - | Health check |
-| POST | /auth/login | - | Login, dapatkan JWT token |
-| GET | /cases/inbox | Bearer | Lihat inbox (filtered by agency) |
-| PATCH | /cases/:id/status | Bearer | Update status (RECEIVED → IN_PROGRESS → RESOLVED) |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/health` | - | Health check |
+| `POST` | `/auth/login` | - | Login, get JWT token |
+| `GET` | `/cases/inbox` | Bearer | Get inbox (filtered by agency) |
+| `PATCH` | `/cases/:id/status` | Bearer | Update status (RECEIVED → IN_PROGRESS → RESOLVED) |
 
 ### Workflow Service (Port 8082)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/health` | - | Health check |
+| `GET` | `/notifications/me` | Bearer | Get my notifications |
+| `GET` | `/sla/status` | - | View SLA status of all reports |
+| `GET/POST` | `/sla/config` | - | Get/Set SLA duration |
 
-| Method | Endpoint | Auth | Deskripsi |
-|--------|----------|------|-----------|
-| GET | /health | - | Health check |
-| GET | /notifications/me | Bearer | Lihat notifikasi saya |
-| GET | /sla/status | - | Lihat status SLA semua laporan |
-
-## 🧪 Contoh Request
-
-### 1. Login sebagai Citizen
-
-```bash
-curl -X POST http://localhost:8080/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"citizen1","password":"password"}'
-```
-
-Response:
-```json
-{
-  "success": true,
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "user": {"id": "citizen1", "role": "citizen", "agency": ""}
-}
-```
-
-### 2. Buat Laporan
-
-```bash
-curl -X POST http://localhost:8080/reports \
-  -H "Authorization: Bearer <TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"content":"Jalan rusak di Jl. Sudirman","visibility":"PUBLIC","category":"infrastruktur"}'
-```
-
-### 3. Login sebagai Officer
-
-```bash
-curl -X POST http://localhost:8081/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"officer1","password":"password"}'
-```
-
-### 4. Lihat Inbox Officer
-
-```bash
-curl http://localhost:8081/cases/inbox \
-  -H "Authorization: Bearer <OFFICER_TOKEN>"
-```
-
-### 5. Update Status
-
-```bash
-curl -X PATCH http://localhost:8081/cases/<REPORT_ID>/status \
-  -H "Authorization: Bearer <OFFICER_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"IN_PROGRESS"}'
-```
-
-### 6. Cek Notifikasi (Citizen)
-
-```bash
-curl http://localhost:8082/notifications/me \
-  -H "Authorization: Bearer <CITIZEN_TOKEN>"
-```
-
-## 📊 Event Flow
-
-```
-1. Citizen → POST /reports
-   └─► Reporting Service
-       ├─► Save to reporting_db
-       └─► Publish: report.created
-
-2. Operations Service ← Consume: report.created
-   └─► Insert to cases (inbox), route to agency
-
-3. Workflow Service ← Consume: report.created
-   └─► Create SLA job (due in 24h)
-
-4. Officer → PATCH /cases/:id/status
-   └─► Operations Service
-       ├─► Update cases table
-       └─► Publish: report.status.updated
-
-5. Reporting Service ← Consume: report.status.updated
-   └─► Update my_reports_view
-
-6. Workflow Service ← Consume: report.status.updated
-   └─► Create notification for citizen
-
-7. [Background] SLA Worker (every 30s)
-   └─► If overdue → Publish: report.escalated
-```
+---
 
 ## 🔄 Event Contracts
 
-### report.created
+### `report.created`
 ```json
 {
   "report_id": "uuid",
@@ -217,7 +99,7 @@ curl http://localhost:8082/notifications/me \
 }
 ```
 
-### report.status.updated
+### `report.status.updated`
 ```json
 {
   "report_id": "uuid",
@@ -228,7 +110,7 @@ curl http://localhost:8082/notifications/me \
 }
 ```
 
-### report.escalated
+### `report.escalated`
 ```json
 {
   "report_id": "uuid",
@@ -237,7 +119,7 @@ curl http://localhost:8082/notifications/me \
 }
 ```
 
-### report.upvoted
+### `report.upvoted`
 ```json
 {
   "report_id": "uuid",
@@ -246,63 +128,77 @@ curl http://localhost:8082/notifications/me \
 }
 ```
 
-## 🏛️ Teknologi
+## �👤 Test Credentials
 
-| Komponen | Teknologi |
-|----------|-----------|
-| Backend | Go 1.21 |
-| Database | PostgreSQL 15 (3 instances) |
-| Event Bus | Redis 7 (Streams) |
-| Container | Docker & Docker Compose |
-| Auth | JWT (simplified, hardcoded users) |
+| Role | Username | Password | Agency | Function |
+|------|----------|----------|--------|----------|
+| **Citizen** | `citizen1` | `password` | - | Create reports, view history |
+| **Officer** | `officer1` | `password` | Infrastructure | Resolve infrastructure issues |
+| **Officer** | `officer2` | `password` | Health | Resolve health issues |
+| **Officer** | `officer3` | `password` | Safety | Resolve safety issues |
 
-## 📝 Database Schema
+---
 
-### Reporting DB
-- `reports` - Laporan warga
-- `votes` - Upvotes
-- `my_reports_view` - Read model untuk citizen
+## 📈 Load Test Results (k6)
 
-### Operations DB
-- `cases` - Inbox officer
-- `case_status_history` - Audit trail
+We performed a stress test simulating **150 concurrent users** creating reports and updating statuses. The system demonstrated high throughput and low error rates.
 
-### Workflow DB
-- `report_status_projection` - Status tracking
-- `sla_jobs` - SLA monitoring
-- `notifications` - Notifikasi citizen
-
-## 🔍 Monitoring & Debug
-
-### Lihat Logs Event
-
+**Command to Run Test:**
 ```bash
-# Semua services
-docker-compose logs -f | grep -E "\[EVENT\]|\[CONSUMER\]"
+# 1. Reset database (Recommended)
+docker-compose down -v && docker-compose up --build -d
 
-# Service tertentu
-docker-compose logs -f reporting-service
-docker-compose logs -f operations-service
-docker-compose logs -f workflow-service
+# 2. Run k6 script
+k6 run test-scripts/load-test.k6.js
 ```
 
-### Cek Database
+**Latest Results (150 VUs):**
 
-```bash
-# Reporting DB
-docker exec -it reporting-db psql -U postgres -d reporting_db -c "SELECT * FROM reports;"
+```text
+     execution: local
+        script: test-scripts/load-test.k6.js
+        output: -
 
-# Operations DB
-docker exec -it operations-db psql -U postgres -d operations_db -c "SELECT * FROM cases;"
+     scenarios: (100.00%) 1 scenario, 150 max VUs, 5m40s max duration
+              * ramp_up: Up to 150 looping VUs for 5m30s
 
-# Workflow DB
-docker exec -it workflow-db psql -U postgres -d workflow_db -c "SELECT * FROM sla_jobs;"
+  Overview:
+      Total Requests:  109,630
+      Duration:        5m 32s
+      Throughput:      329.68 req/s
+      Error Rate:      0.00% (0 failed requests)
+
+  Response Times (P95):
+      Global HTTP:     139.12 ms
+      Write Latency:   66.00 ms (Creating Reports)
+      Read Latency:    421.00 ms (Fetching Feeds)
+      Sync Latency:    61.00 ms (CQRS Sync)
 ```
 
-### Cek Redis Streams
+**Analysis:**
+- **Zero Errors**: The system handled ~110k requests with 0% failure rate under load.
+- **Fast Writes**: Creating reports is extremely fast (66ms P95) due to the dedicated Write DB.
+- **CQRS Efficiency**: Split architecture prevents heavy reads from slowing down report submission.
 
-```bash
-docker exec -it redis redis-cli
-> XINFO STREAM report-events
-> XLEN report-events
-```
+---
+
+## 🔄 Event Flow (CQRS + Event Driven)
+
+1. **Create Report**:
+   - Citizen POSTs to `Reporting Service`.
+   - Saved to **Write DB**.
+   - `report.created` event published to Redis.
+2. **Sync & Process**:
+   - **Reporting Service**: Updates **Read DB** for fast querying.
+   - **Operations Service**: consuming event, creates case in **Operations DB**.
+   - **Workflow Service**: consuming event, starts SLA timer.
+3. **Resolve**:
+   - Officer updates status to `RESOLVED`.
+   - `report.status.updated` event published.
+   - All services update their local views (Read DB, Notifications).
+
+## 🛠️ Tech Stack
+- **Language**: Golang 1.21
+- **Databases**: PostgreSQL 15, Redis 7
+- **Frontend**: React, TailwindCSS, Vite
+- **Testing**: k6 (Load Testing)

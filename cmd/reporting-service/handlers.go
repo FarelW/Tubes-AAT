@@ -97,9 +97,8 @@ func loginHandler() http.HandlerFunc {
 	}
 }
 
-// =============================================================================
-// COMMAND HANDLERS (Write to WriteDB)
-// =============================================================================
+// createReportHandler creates a new citizen report
+// Uses: WriteDB (COMMAND)
 
 // createReportHandler creates a new citizen report
 // Uses: WriteDB (COMMAND)
@@ -253,9 +252,8 @@ func upvoteReportHandler(app *App) http.HandlerFunc {
 	}
 }
 
-// =============================================================================
-// QUERY HANDLERS (Read from ReadDB)
-// =============================================================================
+// getMyReportsHandler returns citizen's own reports
+// Uses: ReadDB (QUERY)
 
 // getMyReportsHandler returns citizen's own reports
 // Uses: ReadDB (QUERY)
@@ -263,10 +261,10 @@ func getMyReportsHandler(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims := r.Context().Value("claims").(*auth.Claims)
 
-		// [CQRS - QUERY] Read from ReadDB
+		// [CQRS - QUERY] Read from ReadDB with pagination
 		rows, err := app.ReadDB.QueryContext(r.Context(),
 			`SELECT report_id, content, visibility, current_status, vote_count, last_status_at, created_at
-			 FROM my_reports_view WHERE reporter_user_id = $1 ORDER BY created_at DESC`,
+			 FROM my_reports_view WHERE reporter_user_id = $1 ORDER BY created_at DESC LIMIT 100`,
 			claims.Sub)
 		if err != nil {
 			log.Printf("[CQRS-READ] Error querying: %v", err)
@@ -344,9 +342,8 @@ func getPublicReportsHandler(app *App) http.HandlerFunc {
 	}
 }
 
-// =============================================================================
-// HELPERS
-// =============================================================================
+// getPublicReportsHandler returns all public reports
+// Uses: ReadDB (QUERY)
 
 // respondWithJSON writes JSON response
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
