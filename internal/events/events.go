@@ -7,11 +7,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// Event types
+// Event types matching the contract
 const (
-	ReportCreated = "ReportCreated"
-	ReportUpdated = "ReportUpdated"
-	ReportDeleted = "ReportDeleted"
+	ReportCreated       = "report.created"
+	ReportStatusUpdated = "report.status.updated"
+	ReportEscalated     = "report.escalated"
+	ReportUpvoted       = "report.upvoted"
 )
 
 // Event represents a domain event
@@ -23,31 +24,37 @@ type Event struct {
 	Timestamp time.Time       `json:"timestamp"`
 }
 
-// ReportCreatedPayload represents the payload for ReportCreated event
+// ReportCreatedPayload - published when citizen creates a report
 type ReportCreatedPayload struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Category    string    `json:"category"`
-	Status      string    `json:"status"`
+	ReportID       string    `json:"report_id"`
+	ReporterUserID string    `json:"reporter_user_id"`
+	Visibility     string    `json:"visibility"`
+	Content        string    `json:"content"`
+	Category       string    `json:"category"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// ReportStatusUpdatedPayload - published when officer updates status
+type ReportStatusUpdatedPayload struct {
+	ReportID    string    `json:"report_id"`
+	OldStatus   string    `json:"old_status"`
+	NewStatus   string    `json:"new_status"`
+	OwnerAgency string    `json:"owner_agency"`
+	ChangedAt   time.Time `json:"changed_at"`
+}
+
+// ReportEscalatedPayload - published when SLA breach occurs
+type ReportEscalatedPayload struct {
+	ReportID        string `json:"report_id"`
+	Reason          string `json:"reason"`
+	EscalationLevel int    `json:"escalation_level"`
+}
+
+// ReportUpvotedPayload - published when citizen upvotes a report
+type ReportUpvotedPayload struct {
+	ReportID    string    `json:"report_id"`
+	VoterUserID string    `json:"voter_user_id"`
 	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-// ReportUpdatedPayload represents the payload for ReportUpdated event
-type ReportUpdatedPayload struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Category    string    `json:"category"`
-	Status      string    `json:"status"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-// ReportDeletedPayload represents the payload for ReportDeleted event
-type ReportDeletedPayload struct {
-	ID        string    `json:"id"`
-	DeletedAt time.Time `json:"deleted_at"`
 }
 
 // NewEvent creates a new Event
@@ -81,3 +88,7 @@ func FromJSON(data []byte) (*Event, error) {
 	return &event, nil
 }
 
+// ParsePayload parses the payload into the specified type
+func (e *Event) ParsePayload(v interface{}) error {
+	return json.Unmarshal(e.Payload, v)
+}
