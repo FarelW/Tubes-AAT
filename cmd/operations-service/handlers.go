@@ -123,13 +123,15 @@ func getInboxHandler(app *App) http.HandlerFunc {
 				"updated_at":   updatedAt,
 			}
 
-			// Only show reporter if not anonymous
+			// Only show reporter if not anonymous (PUBLIC and PRIVATE show identity)
 			if visibility.Valid && visibility.String != "ANONYMOUS" {
 				caseData["content"] = content.String
 				caseData["reporter_user_id"] = reporterUserID.String
+				caseData["visibility"] = visibility.String
 			} else {
 				caseData["content"] = content.String
 				caseData["reporter_user_id"] = "[ANONYMOUS]"
+				caseData["visibility"] = "ANONYMOUS"
 			}
 
 			cases = append(cases, caseData)

@@ -67,7 +67,10 @@ function getRandomCategory() {
 }
 
 function getRandomVisibility() {
-    return Math.random() > 0.3 ? 'PUBLIC' : 'ANONYMOUS';
+    const rand = Math.random();
+    if (rand > 0.5) return 'PUBLIC';
+    if (rand > 0.2) return 'PRIVATE';
+    return 'ANONYMOUS';
 }
 
 function login(baseUrl, username, password) {
@@ -83,7 +86,7 @@ function login(baseUrl, username, password) {
 }
 
 // Main Test Function
-export default function() {
+export default function () {
     // Get tokens (cached per VU)
     const citizenToken = login(BASE_URLS.REPORTING, 'citizen1', 'password');
     const officerToken = login(BASE_URLS.OPERATIONS, 'officer1', 'password');
@@ -99,7 +102,7 @@ export default function() {
     });
 
     // Test Group 1: Write Operations (CQRS Command)
-    group('Write Operations', function() {
+    group('Write Operations', function () {
         // Create a new report
         const createStart = Date.now();
         const createRes = http.post(
@@ -141,7 +144,7 @@ export default function() {
     });
 
     // Test Group 2: Read Operations (CQRS Query)
-    group('Read Operations', function() {
+    group('Read Operations', function () {
         // Get my reports
         const myReportsStart = Date.now();
         const myReportsRes = http.get(
@@ -184,7 +187,7 @@ export default function() {
     });
 
     // Test Group 3: Status Update Workflow
-    group('Status Updates', function() {
+    group('Status Updates', function () {
         // Get a case from inbox
         const inboxRes = http.get(
             `${BASE_URLS.OPERATIONS}/cases/inbox`,
@@ -213,7 +216,7 @@ export default function() {
     });
 
     // Test Group 4: Upvote Operations
-    group('Upvotes', function() {
+    group('Upvotes', function () {
         const publicRes = http.get(`${BASE_URLS.REPORTING}/reports/public`);
         const reports = JSON.parse(publicRes.body).data || [];
 

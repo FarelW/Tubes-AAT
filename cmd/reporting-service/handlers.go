@@ -124,6 +124,8 @@ func createReportHandler(app *App) http.HandlerFunc {
 		visibility := "PUBLIC"
 		if req.Visibility == "ANONYMOUS" {
 			visibility = "ANONYMOUS"
+		} else if req.Visibility == "PRIVATE" {
+			visibility = "PRIVATE"
 		}
 
 		category := "lainnya"

@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS reports (
     report_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     reporter_user_id VARCHAR(100) NOT NULL,
-    visibility VARCHAR(20) NOT NULL DEFAULT 'PUBLIC' CHECK (visibility IN ('PUBLIC', 'ANONYMOUS')),
+    visibility VARCHAR(20) NOT NULL DEFAULT 'PUBLIC' CHECK (visibility IN ('PUBLIC', 'ANONYMOUS', 'PRIVATE')),
     content TEXT NOT NULL,
     category VARCHAR(100) NOT NULL DEFAULT 'lainnya',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

@@ -83,6 +83,7 @@ export function CitizenDashboard({
                   className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500 transition-colors"
                 >
                   <option value="PUBLIC">Public (Visible to all)</option>
+                  <option value="PRIVATE">Private (Only you and department)</option>
                   <option value="ANONYMOUS">Anonymous (Hide identity)</option>
                 </select>
               </div>
